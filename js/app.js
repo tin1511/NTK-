@@ -45,26 +45,35 @@
     82: 'Showers', 85: 'Snow', 86: 'Snow', 95: 'Thunderstorm',
     96: 'Thunderstorm', 99: 'Thunderstorm'
   };
+  var weatherRequest = null;
   function fetchWeather() {
+    // Avoid duplicate requests when the app returns to the foreground.
+    if (weatherRequest) { return; }
     var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + CONFIG.latitude +
       '&longitude=' + CONFIG.longitude +
       '&current=temperature_2m,weather_code' +
       '&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1';
     var xhr = new XMLHttpRequest();
+    weatherRequest = xhr;
     xhr.open('GET', url, true);
-    xhr.timeout = 12000;
+    xhr.timeout = 8000;
     xhr.onload = function () {
+      weatherRequest = null;
+      if (xhr.status < 200 || xhr.status >= 300) { return; }
       try {
         var j = JSON.parse(xhr.responseText);
+        if (!j.current || !j.daily || !j.daily.temperature_2m_max || !j.daily.temperature_2m_min) { return; }
         var t = Math.round(j.current.temperature_2m);
         var label = WMO[j.current.weather_code] || '';
         var hi = Math.round(j.daily.temperature_2m_max[0]);
         var lo = Math.round(j.daily.temperature_2m_min[0]);
         weatherText.textContent = CONFIG.weatherCity + ' · ' + t + '° ' + label +
           ' · H ' + hi + '° L ' + lo + '°';
-      } catch (e) { /* keep the old line */ }
+      } catch (e) { /* Keep the last valid weather line on old TV browsers. */ }
     };
-    xhr.send();
+    xhr.onerror = function () { weatherRequest = null; };
+    xhr.ontimeout = function () { weatherRequest = null; };
+    try { xhr.send(); } catch (e) { weatherRequest = null; }
   }
   fetchWeather();
   setInterval(fetchWeather, 1800000);
@@ -134,13 +143,19 @@
 
   function orderApps(apps) {
     var byName = function (a, b) {
-      return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1;
+      var an = a.name.toLowerCase(), bn = b.name.toLowerCase();
+      return an < bn ? -1 : (an > bn ? 1 : 0);
     };
     var front = [];
     (CONFIG.orderNames || []).forEach(function (want) {
-      var i = apps.findIndex(function (a) {
-        return a.name.toLowerCase().indexOf(want) >= 0;
-      });
+      // ES5-compatible search: Array.findIndex is missing in some older TV engines.
+      var i = -1;
+      for (var j = 0; j < apps.length; j++) {
+        if (apps[j].name && apps[j].name.toLowerCase().indexOf(want) >= 0) {
+          i = j;
+          break;
+        }
+      }
       if (i >= 0) { front.push(apps.splice(i, 1)[0]); }
     });
     apps.sort(byName);
